@@ -25,9 +25,9 @@ The circuit implements multiple independent safety layers:
 
 ### Layer 3: Fuse — Interruption
 - **Response time:** 1–10ms (depends on fault current magnitude)
-- **Function:** Permanently disconnects the supply after crowbar fires
-- **Type:** Semiconductor-grade fast-acting fuse (Bussmann FWH or similar)
-- **Key specification:** DC voltage rating must match or exceed system voltage
+- **Function:** Limits and interrupts line energy feeding the rectifier/crowbar path
+- **Type:** One fast-acting fuse per AC phase (F1A/F1B/F1C, 3A class)
+- **Key specification:** AC voltage + interrupt rating and I^2t must match inrush/fault profile
 
 ---
 
@@ -79,10 +79,19 @@ The circuit implements multiple independent safety layers:
 **Risk:** If the fuse is too slow or the SCR is too small, the SCR junction temperature could exceed maximum during the fault, causing SCR failure (open circuit) before the fuse clears — leaving the load unprotected.
 
 **Mitigation:**
-- Fuse I²t (clearing) must be significantly less than SCR I²t (surge)
-- Calculation: Fuse I²t ≈ 50,000 A²s << SCR I²t ≈ 198,450 A²s (4:1 margin)
-- Use semiconductor-grade fuses designed for SCR/thyristor protection
-- Verify with actual manufacturer datasheets
+- Validate per-phase fuse clearing I^2t against SCR1 surge capability
+- Include capacitor charging pulse stress from the 1000uF output capacitor
+- Use line fuses with published pre-arcing/clearing curves
+- Verify with measured fault waveforms on hardware
+
+### 2.7 Output Isolation SCR (SCR2) Behavior
+
+**Risk:** Without output isolation, the high-energy output capacitor can discharge back
+through the crowbar path, increasing SCR1 stress and reducing hold-up at the load.
+
+**Mitigation:** Use the second SCR in the dual module as a diode-connected
+forward element from rectifier bus to output bus. This blocks reverse current from
+the 600V/1000uF capacitor into the crowbar node after SCR1 fires.
 
 ---
 
@@ -96,9 +105,11 @@ The circuit implements multiple independent safety layers:
 | TL431 open | Never conducts | No OV protection | Redundant monitoring |
 | Q1 short (C-E) | Permanent gate drive | SCR fires immediately (false trip) | Not dangerous — protective action |
 | Q1 open | No gate drive | No OV protection | Redundant monitoring |
-| SCR short | Always conducting | Load disconnected via fuse | Not dangerous — fuse blows |
-| SCR open | Cannot fire | No OV protection | Redundant SCR or monitoring |
-| Fuse open (premature) | Load disconnected | Loss of power to load | Fuse monitoring; correct fuse rating |
+| SCR1 short | Always crowbarred | Input fuses open / no output | Safe-fail but no service |
+| SCR1 open | Cannot crowbar | No OV protection | Redundant monitor / diagnostic |
+| SCR2 short | No reverse isolation | Output capacitor can dump into crowbar | Validate thermal/fuse stress, monitor |
+| SCR2 open | No output charging | Load undervoltage / no output | Fault detection on output bus |
+| Any phase fuse open | Reduced/failed rectification | Low DC output, high ripple | Per-phase fuse monitoring |
 | MOV degraded | Clamping voltage rises | Reduced transient protection; crowbar handles it | MOV health monitoring; periodic replacement |
 | ZD1 short | V_local = 0 | No gate drive; OV protection lost | Redundant monitoring |
 | Snubber C2 short | Bus shorted through R9 | R9 dissipates 450²/47 = 4.3kW → fails | Use self-healing film capacitor; fuse protection |

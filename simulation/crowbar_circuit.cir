@@ -1,20 +1,18 @@
 * ============================================================================
 * Crowbar Overvoltage Protection Circuit
-* 450V Trigger | 250A SCR | TL431 Voltage Sensing
+* 450V Trigger | 3-Phase 240V L-L Input | Dual-SCR Module Use
 * ============================================================================
 *
-* Safety features modeled:
-*   1. Fuse (300A, 500VDC fast-acting) with I²t blowing model
-*   2. MOV transient suppressor (480V clamp)
-*   3. RC snubber across SCR (dv/dt protection)
-*   4. Gate-cathode shunt resistor (noise immunity)
-*   5. Noise filter capacitor on sensing divider
-*   6. Zener clamp on PNP base-emitter (driver protection)
-*   7. Gate overvoltage zener clamp
-*   8. Split high-voltage resistors (voltage derating)
+* Topology refinement:
+*   - 3-phase 240V phase-to-phase source feeding a 6-diode rectifier
+*   - One 3A fuse in each phase leg (F1A/F1B/F1C)
+*   - SCR1 crowbar across rectifier bus (pre-output isolation)
+*   - SCR2 (from dual SCR module) used as diode-connected output isolator
+*   - 600V, 1000uF output capacitor on protected output node
 *
-* Scenario: 0→400V startup (200ms), hold at 400V, then overvoltage
-*           ramp 400→500V starting at 500ms. Crowbar should fire at ~450V.
+* Scenario:
+*   0→240V L-L startup (200ms), hold at 240V, then overvoltage ramp
+*   240→360V L-L starting at 500ms. Crowbar should fire near 450V output.
 *
 * ============================================================================
 
@@ -23,53 +21,77 @@
 .control
   set filetype=ascii
   set nobreak
-  tran 10u 800m uic
-  wrdata /workspace/simulation/crowbar_results.txt v(hv_bus) v(ref_node) v(scr_gate) i(V_isense) v(local_pwr) v(tl431_cath) v(scr_state)
+  tran 20u 800m uic
+  wrdata /workspace/simulation/crowbar_results.txt v(hv_bus) v(dc_out) v(ref_node) v(scr_gate) i(V_isense) v(local_pwr) v(tl431_cath) v(scr_state)
   quit
 .endc
 
 * ============================================================================
-* POWER SOURCE with source impedance
+* 3-PHASE INPUT SOURCE (240VAC L-L nominal)
 * ============================================================================
-* Real power supply has finite output impedance. 0.1Ω models a stiff
-* but non-ideal supply. When SCR fires, bus voltage collapses because
-* the source cannot maintain voltage into a near-short.
+* V_phase_peak = V_LL * sqrt(2/3). For 240V L-L RMS => 195.96V peak.
 
-V_source source 0 PWL(
+V_vll_cmd vll_cmd 0 PWL(
 + 0      0
-+ 200m   400
-+ 500m   400
-+ 700m   500
-+ 800m   500 )
++ 200m   240
++ 500m   240
++ 700m   360
++ 800m   360 )
 
-V_isense source source_sensed 0
-R_source source_sensed fused_node 0.1
+B_phase_a phase_a_src n_src V = V(vll_cmd)*0.81649658*sin(2*pi*60*time)
+B_phase_b phase_b_src n_src V = V(vll_cmd)*0.81649658*sin(2*pi*60*time - 2*pi/3)
+B_phase_c phase_c_src n_src V = V(vll_cmd)*0.81649658*sin(2*pi*60*time - 4*pi/3)
+
+* Tiny reference to avoid floating-neutral convergence issues.
+R_neutral_ref n_src 0 100MEG
+
+* Phase source impedance
+R_source_a phase_a_src phase_a_fuse_in 0.2
+R_source_b phase_b_src phase_b_fuse_in 0.2
+R_source_c phase_c_src phase_c_fuse_in 0.2
+
+* Per-phase line fuses (3A each, ESR only in this behavioral model)
+R_fuse_a phase_a_fuse_in phase_a 0.05
+R_fuse_b phase_b_fuse_in phase_b 0.05
+R_fuse_c phase_c_fuse_in phase_c 0.05
 
 * ============================================================================
-* FUSE MODEL (F1: 300A, 500VDC)
+* 3-PHASE BRIDGE RECTIFIER
 * ============================================================================
-* Behavioral fuse: conducts normally (0.5mΩ), but when accumulated
-* energy (I²t proxy) exceeds threshold, resistance goes to 1MΩ (open).
-* I²t accumulator: integrates current² via RC circuit.
+.model DRECT D(IS=1e-9 RS=0.02 N=1.2 BV=1200 IBV=1e-6 TT=2u CJO=50p M=0.33)
 
-R_fuse_on fused_node hv_bus 0.5m
+D1 phase_a rect_pos DRECT
+D2 phase_b rect_pos DRECT
+D3 phase_c rect_pos DRECT
+D4 0 phase_a DRECT
+D5 0 phase_b DRECT
+D6 0 phase_c DRECT
+
+* Current sense from rectifier to crowbar bus
+V_isense rect_pos hv_bus 0
 
 * ============================================================================
-* LOAD — 10Ω (draws ~40A at 400V nominal, ~396V at bus due to R_source)
+* OUTPUT ISOLATION USING SECOND SCR AS DIODE (SCR2)
 * ============================================================================
-R_load hv_bus 0 10
+* Gate tied to anode behavior approximation:
+*   Conducts from hv_bus -> dc_out with SCR-like drop.
+*   Blocks reverse current so C_OUT cannot discharge into crowbar.
+B_scr_diode hv_bus dc_out I = (V(hv_bus,dc_out) > 1.4) ? (V(hv_bus,dc_out)-1.4)/0.01 : 0
+
+* Protected output filter capacitor and load
+C_out dc_out 0 1000u IC=0
+R_load dc_out 0 330
 
 * ============================================================================
-* MOV — 480V behavioral clamp
+* MOV — 480V behavioral clamp (on crowbar/rectifier bus)
 * ============================================================================
 B_mov hv_bus 0 I = (V(hv_bus) > 480) ? 0.01*pow((V(hv_bus)-480)/10, 3) : 0
 
 * ============================================================================
-* VOLTAGE SENSING NETWORK
+* VOLTAGE SENSING NETWORK (monitors protected output)
 * ============================================================================
 * V_trigger = 2.495 × (1 + 1.82M / 10.15k) = 449.9V
-* R1 split into 2 × 910kΩ for voltage derating (each sees <250V)
-R1a  hv_bus    mid_r1    910k
+R1a  dc_out    mid_r1    910k
 R1b  mid_r1    ref_node  910k
 R2   ref_node  0         10.15k
 
@@ -77,13 +99,10 @@ R2   ref_node  0         10.15k
 C3   ref_node  0 1n IC=0
 
 * ============================================================================
-* LOCAL 15V SUPPLY from HV bus
+* LOCAL 15V SUPPLY from protected output bus
 * ============================================================================
-* R3+R4 = 94kΩ total, split for voltage derating
-* ZD1 = 15V zener regulator (behavioral)
-* C1 = 1µF bulk storage, τ = 94ms (charges during startup ramp)
-R3  hv_bus       mid_supply  47k
-R4  mid_supply   local_pwr   47k
+R3  dc_out      mid_supply  47k
+R4  mid_supply  local_pwr   47k
 
 B_zd1 local_pwr 0 I = (V(local_pwr) > 15) ? (V(local_pwr)-15)/5 : 0
 
@@ -93,10 +112,6 @@ C4  local_pwr 0 100n IC=0
 * ============================================================================
 * TL431 SHUNT REGULATOR (Behavioral)
 * ============================================================================
-* OFF: cathode floats high (pulled up by R5 to V_local)
-* ON (Vref>2.495V): cathode pulled to ~2.5V; max sink current 100mA
-* Smooth tanh switching for convergence
-
 B_tl431 tl431_cath 0 I = min(0.1, max(0, (V(tl431_cath)-2.5)/2.0 * (1+tanh((V(ref_node)-2.495)*5000))/2 ))
 R_tl431_leak tl431_cath 0 50MEG
 
@@ -105,61 +120,41 @@ R5 local_pwr tl431_cath 1k
 * ============================================================================
 * PNP GATE DRIVER (Q1 = 2N2905A)
 * ============================================================================
-* TL431 OFF → cathode HIGH → PNP OFF → no SCR gate drive
-* TL431 ON  → cathode LOW  → PNP ON  → SCR gate driven
-
 .model Q2N2905A PNP(IS=1e-14 BF=120 BR=4 RB=10 RC=1 RE=0.5
 + CJE=20p CJC=20p TF=0.3n VAF=100)
 
 R6 tl431_cath q1_base 1k
-
-* V_EB clamp zener (5.1V, protects Q1)
 B_zd2 q1_base local_pwr I = (V(local_pwr)-V(q1_base) > 5.1) ? (V(local_pwr)-V(q1_base)-5.1)/5 : 0
-
 Q1 q1_collector q1_base local_pwr Q2N2905A
 
 * ============================================================================
-* SCR GATE NETWORK
+* SCR1 GATE NETWORK (crowbar SCR)
 * ============================================================================
-* R7: current limiting (47Ω)
-* R8: gate-cathode shunt (100Ω, noise immunity)
-* ZD3: gate overvoltage protection (15V clamp)
 R7  q1_collector scr_gate 47
 R8  scr_gate 0 100
 B_zd3 scr_gate 0 I = (V(scr_gate) > 15) ? (V(scr_gate)-15)/1 : 0
 
 * ============================================================================
-* SCR MODEL (250A, 800V) — Behavioral Latching Switch
+* SCR1 MODEL (250A class) — Behavioral Latching Switch
 * ============================================================================
-* Uses a capacitor-charged state variable. When gate voltage exceeds
-* trigger threshold (1V), current is injected INTO the state node,
-* charging the capacitor. Once charged above 3V, the SCR conducts
-* with ~5mΩ on-resistance and 1.5V forward drop.
-
 C_state scr_state 0 100n IC=0
 R_state scr_state 0 100MEG
 
-* Gate trigger: charges state cap (current from GND into scr_state)
+* Gate trigger: charges state cap
 B_gate_charge 0 scr_state I = (V(scr_gate) > 1.0 && V(hv_bus) > 1.0) ? 1.0 : 0
-
-* Clamp state to 10V
 B_state_hi scr_state 0 I = (V(scr_state) > 10) ? (V(scr_state)-10)/1 : 0
-
-* Floor at 0V
 B_state_lo 0 scr_state I = (V(scr_state) < 0) ? 0.1 : 0
 
-* SCR conduction: state > 3V → low-impedance path anode to cathode
-* On-resistance 5mΩ, forward drop 1.5V
+* Crowbar conduction path (anode=hv_bus, cathode=GND)
 B_scr hv_bus 0 I = (V(scr_state) > 3.0 && V(hv_bus) > 1.5) ? (V(hv_bus)-1.5)/0.005 : 0
 
 * ============================================================================
-* RC SNUBBER across SCR (dv/dt protection)
+* RC SNUBBER across SCR1 (dv/dt protection)
 * ============================================================================
-* 47Ω + 0.47µF, rated 630V
 R9  hv_bus snub_mid 47
 C2  snub_mid 0 0.47u IC=0
 
 * ============================================================================
-.ic V(scr_state)=0 V(ref_node)=0 V(local_pwr)=0 V(tl431_cath)=0
+.ic V(scr_state)=0 V(ref_node)=0 V(local_pwr)=0 V(tl431_cath)=0 V(dc_out)=0
 
 .end
