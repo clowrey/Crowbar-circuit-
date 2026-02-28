@@ -1,5 +1,41 @@
 # Design Calculations
 
+This document keeps the original TL431/SCR control-chain math and adds
+front-end context for the refined topology:
+- 3-phase 240V phase-to-phase rectifier input
+- 3A fuse per phase
+- SCR2 used as an output isolation diode
+- 600V, 1000uF output capacitor at `dc_out`
+
+---
+
+## 0. 3-Phase Rectifier Front-End Operating Points
+
+For a 3-phase bridge with line-line RMS voltage `V_LL`:
+
+```
+V_phase_peak = V_LL * sqrt(2/3)
+V_LL_peak    = V_LL * sqrt(2)
+```
+
+At nominal `V_LL = 240V`:
+
+```
+V_phase_peak = 240 * sqrt(2/3) = 195.96V
+V_LL_peak    = 240 * sqrt(2)   = 339.4V
+```
+
+With a capacitor-input DC bus, `dc_out` charges near line-line peak
+(minus conduction drops), so nominal DC output is approximately 330V-338V.
+
+At overvoltage `V_LL = 360V`:
+
+```
+V_LL_peak = 360 * sqrt(2) = 509.1V
+```
+
+This gives enough headroom to cross the 450V trip threshold.
+
 ## 1. Voltage Sensing Divider (R1, R2)
 
 The TL431 internal reference voltage is 2.495V. The resistor divider scales the HV bus voltage to match this reference at the desired trigger point.
@@ -75,11 +111,11 @@ P_R2  = (0.246mA)² × 10.15kΩ = 0.6mW  (negligible)
 
 **R3 + R4 = 94kΩ** (two 47kΩ for voltage derating):
 
-At 400V nominal bus:
+At 340V nominal bus:
 ```
-I_supply = (400V - 15V) / 94kΩ = 4.1mA
-P_R3 = (4.1mA)² × 47kΩ = 0.79W → use 2W rated
-P_R4 = (4.1mA)² × 47kΩ = 0.79W → use 2W rated
+I_supply = (340V - 15V) / 94kΩ = 3.46mA
+P_R3 = (3.46mA)^2 × 47kΩ = 0.56W -> use 2W rated
+P_R4 = (3.46mA)^2 × 47kΩ = 0.56W -> use 2W rated
 ```
 
 Each resistor sees ≤225V — adequate voltage derating.
@@ -251,24 +287,32 @@ Peak energy: `½ × 0.47µF × 450² = 47.6mJ` (absorbed by R9).
 
 ---
 
-## 7. Fuse Coordination
+## 7. Per-Phase Fuse Selection (3 x 3A)
 
-### Fuse I²t Rating
+The refined topology uses one fast-acting 3A fuse in each AC phase feeding
+the 3-phase rectifier.
 
-The fuse must clear before the SCR's I²t limit is exceeded.
+### Practical constraints
 
-Example fuse: **Bussmann FWH-300A** (500VDC semiconductor fuse):
-- Clearing I²t: ~50,000 A²s (typical for 300A semiconductor fuse)
-- Total clearing time at 4,725A: t = I²t / I² = 50,000 / 4,725² = 2.24ms
+1. Fuses must survive normal capacitor-charging pulses into the 1000uF output
+   capacitor during startup and steady ripple charging.
+2. Fuses must clear safely for sustained fault current when SCR1 crowbars the
+   rectifier bus.
+3. Voltage and interrupt ratings must match the installation standard and line
+   category (AC side), not just nominal RMS current.
 
-SCR I²t limit (Vishay VS-T7201630): ~200,000 A²s (half-cycle at I_TSM):
+### Initial current sanity check
+
+At nominal output around 330V and `R_LOAD = 330R` (simulation load):
+
 ```
-SCR I²t = I_TSM² × t_half / 2 = 6,300² × 0.01 / 2 = 198,450 A²s
+I_out_nominal ~ 330V / 330R = 1.0A
 ```
 
-**Coordination check:**
-```
-Fuse I²t (50,000) << SCR I²t (198,450)  ✓
-```
+Average phase RMS current is below fuse nominal, but charging pulses can be
+several times higher; therefore time-delay and I^2t characteristics matter.
 
-The fuse blows well before the SCR is damaged.
+### Recommendation
+
+Use manufacturer fuse curves with measured inrush/fault waveforms from
+prototype hardware to finalize the exact 3A fuse family and speed class.

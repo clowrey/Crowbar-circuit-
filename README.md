@@ -1,8 +1,16 @@
 # Crowbar Overvoltage Protection Circuit
 
-**450V trigger threshold · 250A SCR · TL431 precision voltage sensing**
+**450V trigger threshold | TL431 sensing | dual-SCR module usage**
 
-A crowbar overvoltage protection circuit designed to protect high-voltage DC loads from supply overvoltage events. When the bus voltage exceeds 450V, the TL431 precision voltage reference detects the overvoltage and fires a 250A SCR, which shorts the bus and blows the protective fuse, disconnecting the load.
+This project models a crowbar overvoltage protector for a 3-phase front end:
+- 240V phase-to-phase AC input
+- 6-diode rectifier
+- 3A fuse on each phase
+- SCR1 used as crowbar on the rectifier bus
+- SCR2 (same dual-SCR module) used as a diode-connected output isolation device
+- 600V / 1000uF output capacitor on the protected DC output
+
+The key refinement is SCR2 isolation: when SCR1 crowbars the rectifier bus, the output capacitor does not discharge backward through the crowbar path.
 
 ---
 
@@ -10,61 +18,54 @@ A crowbar overvoltage protection circuit designed to protect high-voltage DC loa
 
 ![Block Diagram](schematic/block_diagram.svg)
 
-## How It Works
-
-1. **Normal operation (V < 450V):** The resistor divider scales the bus voltage below the TL431's 2.495V reference. The TL431 remains off, the PNP driver is off, and the SCR gate is held low by the gate-cathode shunt resistor.
-
-2. **Overvoltage detected (V ≥ 450V):** The divider output exceeds 2.495V. The TL431 activates and pulls its cathode to ~2.5V. This forward-biases the PNP transistor (Q1), which drives current into the SCR gate.
-
-3. **Crowbar activation:** The SCR fires and latches on, creating a near-short across the bus. The massive fault current blows the fuse, permanently disconnecting the supply from the load.
-
----
-
 ## Detailed Schematic
 
 ![Detailed Schematic](schematic/crowbar_schematic.svg)
 
-> The numbered red badges (①–⑩) correspond to the 10 safety features listed below.
+Note: the ASCII netlist-aligned diagram in `schematic/crowbar_schematic.txt` is the authoritative topology reference for the latest 3-phase/SCR2-isolation refinement.
 
 See also: [schematic/crowbar_schematic.txt](schematic/crowbar_schematic.txt) for the ASCII-art version.
 
 ---
 
-## Safety Features
+## Operating Sequence
 
-| # | Feature | Component | Purpose |
-|---|---------|-----------|---------|
-| 1 | **Fuse** | F1 (300A, 500VDC) | Interrupts current after SCR fires |
-| 2 | **MOV** | MOV1 (480V) | Fast transient absorption (<1ns) |
-| 3 | **RC Snubber** | R9 + C2 | dv/dt protection for SCR |
-| 4 | **Gate Shunt** | R8 (100Ω) | Prevents noise-triggered SCR firing |
-| 5 | **Gate Clamp** | ZD3 (15V) | Overvoltage protection on SCR gate |
-| 6 | **V_EB Clamp** | ZD2 (5.1V) | Protects PNP driver transistor |
-| 7 | **Noise Filter** | C3 (1nF) | Rejects HF noise on sensing divider |
-| 8 | **Split Resistors** | R1a/R1b, R3/R4 | Voltage derating (each <250V) |
-| 9 | **Local Supply** | ZD1 + C1 + C4 | Clean, decoupled gate driver supply |
-| 10 | **Trimmer** | VR1 (1kΩ) | Precise threshold adjustment (415–457V) |
-
-See [docs/safety_considerations.md](docs/safety_considerations.md) for detailed safety analysis and failure mode table.
+1. **Rectification:** 3-phase 240V L-L input is rectified by a 6-diode bridge.
+2. **Output charging:** SCR2 (used as a diode) conducts from rectifier bus to `dc_out`, charging the 600V/1000uF output capacitor.
+3. **Monitoring:** TL431 divider monitors `dc_out` and compares against 2.495V reference.
+4. **Trip:** At approximately 450V output, TL431 drives Q1, which triggers SCR1.
+5. **Crowbar action:** SCR1 collapses the rectifier bus (`hv_bus`) to near its forward drop.
+6. **Back-discharge prevention:** SCR2 blocks reverse current, so output capacitor energy does not dump through SCR1.
 
 ---
 
-## Design Calculations
+## Safety and Protection Features
 
-Full calculations available in [docs/design_calculations.md](docs/design_calculations.md).
+| # | Feature | Component(s) | Purpose |
+|---|---------|--------------|---------|
+| 1 | Per-phase input fusing | F1A/F1B/F1C (3A each) | Protect each AC phase feeding rectifier |
+| 2 | MOV clamp | MOV1 (480V behavioral model) | Limits high-voltage transients on rectifier bus |
+| 3 | RC snubber | R9 + C2 | Limits SCR1 dv/dt and false triggering |
+| 4 | Gate shunt | R8 | Improves SCR1 noise immunity |
+| 5 | Gate clamp | ZD3 | Protects SCR1 gate from overvoltage |
+| 6 | Driver clamp | ZD2 | Limits PNP base-emitter stress |
+| 7 | Sensing filter | C3 | Filters high-frequency divider noise |
+| 8 | Split HV resistors | R1a/R1b, R3/R4 | Voltage derating across resistor chain |
+| 9 | Local supply decoupling | ZD1 + C1 + C4 | Stabilizes TL431/Q1 gate-driver rail |
+| 10 | Output isolation by spare SCR | SCR2 (diode-connected model) | Blocks reverse output-capacitor discharge |
+| 11 | High-energy output capacitor | C_out (1000uF, 600V) | Holds output during rectifier-bus crowbar |
 
-**Key parameters:**
-- Trigger voltage: **449.9V** (set by R1/R2 divider ratio of 179.3:1)
-- TL431 reference: 2.495V (internal bandgap)
-- SCR gate current: ~100mA (from PNP driver via 15V local supply)
-- Sensing current: 0.25mA (low power dissipation)
-- Response time: <100µs (TL431 + PNP + SCR gate delay)
+For additional safety context, see [docs/safety_considerations.md](docs/safety_considerations.md).
 
 ---
 
 ## Simulation
 
-The circuit is simulated using **ngspice** with behavioral models for the TL431, SCR, and protection devices.
+The netlist in `simulation/crowbar_circuit.cir` now uses:
+- 3-phase AC source (240V L-L nominal)
+- Per-phase source impedance and 3A fuse ESR
+- 6-diode bridge rectifier
+- SCR1 crowbar node (`hv_bus`) and isolated output node (`dc_out`)
 
 ### Prerequisites
 
@@ -79,91 +80,60 @@ pip install matplotlib numpy
 bash simulation/run_simulation.sh
 ```
 
-Or individually:
+Or run manually:
 
 ```bash
 cd simulation
-ngspice -b crowbar_circuit.cir       # Transient analysis → crowbar_results.txt
-python3 plot_results.py              # Parse results → PNG plots
+ngspice -b crowbar_circuit.cir
+python3 plot_results.py
 ```
 
-### Simulation Results
+### Plots
 
-The simulation demonstrates the full crowbar activation sequence:
+- `simulation/crowbar_simulation_results.png`: full waveform overview
+- `simulation/crowbar_trigger_zoomed.png`: zoom around trigger event
 
-1. **0–200ms:** Power supply ramps from 0V to 400V (normal startup)
-2. **200–500ms:** Steady-state operation at 400V nominal
-3. **500–608ms:** Overvoltage event begins (supply ramps toward 500V)
-4. **608ms:** Bus reaches ~450V — **TL431 triggers → PNP drives → SCR fires**
-5. **608ms+:** Bus voltage collapses as SCR shorts the rail; peak surge current ~4,725A would blow the fuse within milliseconds
-
-#### Full Simulation Waveforms
-
-![Simulation Results](simulation/crowbar_simulation_results.png)
-
-*Five-panel view: (1) HV bus voltage showing crowbar activation at 449.7V, (2) local 15V supply and TL431 cathode, (3) sensing divider output crossing the 2.495V reference, (4) SCR gate voltage and latch state, (5) supply current surge through fuse.*
-
-#### Trigger Event — Zoomed
-
-![Trigger Zoomed](simulation/crowbar_trigger_zoomed.png)
-
-*Zoomed view of the crowbar trigger event showing bus voltage collapse, SCR gate pulse, and surge current within a 60ms window around the trigger point.*
-
-#### Results Summary
-
-| Parameter | Value |
-|-----------|-------|
-| Trigger voltage | 449.7V |
-| Trigger accuracy | 99.9% of 450V target |
-| Response time | <1ms from threshold crossing |
-| Peak surge current | 4,725A |
-| Post-crowbar bus voltage | ~1.5V (SCR forward drop) |
+The first panel now shows both:
+- `V(Rectifier/Crowbar Bus)` collapsing when SCR1 fires
+- `V(Protected Output)` holding and decaying by load, not crowbar back-discharge
 
 ---
 
 ## Bill of Materials
 
-See [docs/bom.md](docs/bom.md) for the full BOM with part numbers and sourcing notes.
-
-**Component count:** 21 total (9 resistors + 1 trimmer, 4 capacitors, 3 zeners, 1 PNP transistor, 1 TL431, 1 SCR, 1 fuse, 1 MOV)
+See [docs/bom.md](docs/bom.md) for full BOM details and sourcing notes.
 
 ---
 
 ## File Structure
 
-```
-├── README.md                          This file
-├── AGENTS.md                          Development environment notes
+```text
+├── README.md
+├── AGENTS.md
 ├── docs/
-│   ├── design_calculations.md         Full design math
-│   ├── safety_considerations.md       Safety analysis & failure modes
-│   └── bom.md                         Bill of materials
+│   ├── design_calculations.md
+│   ├── safety_considerations.md
+│   └── bom.md
 ├── schematic/
-│   ├── crowbar_schematic.svg          Detailed circuit schematic (SVG)
-│   ├── block_diagram.svg             Block diagram (SVG)
-│   ├── crowbar_schematic.txt          ASCII-art schematic
-│   └── generate_schematics.py        SVG generator script
+│   ├── crowbar_schematic.svg
+│   ├── block_diagram.svg
+│   ├── crowbar_schematic.txt
+│   └── generate_schematics.py
 └── simulation/
-    ├── crowbar_circuit.cir            ngspice netlist
-    ├── plot_results.py                Plotting script
-    ├── run_simulation.sh              Run simulation + plots
-    ├── crowbar_results.txt            Raw simulation data
-    ├── crowbar_simulation_results.png Full waveform plot
-    └── crowbar_trigger_zoomed.png     Zoomed trigger event plot
+    ├── crowbar_circuit.cir
+    ├── plot_results.py
+    ├── run_simulation.sh
+    ├── crowbar_results.txt
+    ├── crowbar_simulation_results.png
+    └── crowbar_trigger_zoomed.png
 ```
 
 ---
 
 ## Warnings
 
-> ⚡ **HIGH VOLTAGE CIRCUIT** — This circuit operates at 450V+ DC. Voltages above 50V DC are considered lethal. This design is for **reference only**. Any physical implementation must be designed, reviewed, and tested by qualified electrical engineers. Follow all applicable safety standards (IEC 61010, UL 508, etc.).
+> HIGH VOLTAGE CIRCUIT - This design operates at lethal voltage and energy levels. Use only as a reference and validate against applicable standards before hardware implementation.
 
-> 🔥 **SCR SURGE RATING** — When the crowbar fires, peak currents exceeding 4,000A flow through the SCR. Ensure the selected SCR's I²t surge rating exceeds the fuse's I²t clearing rating. The SCR must survive until the fuse opens.
+> CROWBAR ENERGY PATH - Validate SCR surge rating, snubber energy, and per-phase fuse clearing behavior using real datasheets and lab verification.
 
-> ⚠️ **FUSE COORDINATION** — The fuse must be rated for the full bus voltage (DC) and must clear before the SCR's thermal limits are exceeded. Use semiconductor-grade fuses (e.g., Bussmann FWH series) for proper coordination.
-
----
-
-## License
-
-This design is provided as-is for educational and reference purposes.
+> CAPACITOR ENERGY - The 600V/1000uF output capacitor stores significant energy even after crowbar activation. Include controlled discharge provisions in hardware.
