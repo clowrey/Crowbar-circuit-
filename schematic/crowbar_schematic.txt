@@ -1,0 +1,143 @@
+===============================================================================
+  CROWBAR OVERVOLTAGE PROTECTION CIRCUIT — FULL SCHEMATIC
+  450V Trigger | 250A SCR | TL431 Precision Sensing
+===============================================================================
+
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │                          HV SOURCE                                   │
+  │                        (up to 500V)                                  │
+  └──────────────┬───────────────────────────────────────────────────────┘
+                 │
+                 │  ┌────────────────────────────────────┐
+                 ├──┤ F1: FUSE — 300A, 500VDC            ├────────── LOAD (+)
+                 │  │ (semiconductor grade, fast-acting)  │
+                 │  └────────────────────────────────────┘
+                 │
+            HV BUS NODE
+            ─────┼──────────────────────────────────────────────────
+                 │
+       ┌─────────┼──────────┬──────────────┬─────────────────┐
+       │         │          │              │                 │
+       │         │          │              │                 │
+  ┌────┴────┐    │     ┌────┴────┐    ┌────┴────┐      ┌────┴────┐
+  │  MOV1   │    │     │  R1a    │    │   R3    │      │   R9    │
+  │  480V   │    │     │  910kΩ  │    │  47kΩ   │      │  47Ω    │
+  │  40kA   │    │     │  ½W     │    │  2W     │      │  5W     │
+  └────┬────┘    │     └────┬────┘    └────┬────┘      └────┬────┘
+       │         │          │              │                 │
+      GND        │     ┌────┴────┐    ┌────┴────┐      ┌────┴────┐
+                 │     │  R1b    │    │   R4    │      │   C2    │
+                 │     │  910kΩ  │    │  47kΩ   │      │ 0.47µF  │
+                 │     │  ½W     │    │  2W     │      │  630V   │
+                 │     └────┬────┘    └────┬────┘      └────┬────┘
+                 │          │              │                 │
+                 │     REF NODE       LOCAL SUPPLY      SNUB_MID
+                 │          │         (V_local)              │
+                 │     ┌────┼────┐    ┌────┼────┐           GND
+                 │     │    │    │    │    │    │
+                 │  ┌──┴─┐  │ ┌──┴─┐ │ ┌──┴─┐  │
+                 │  │ R2 │  │ │ C3 │ │ │ZD1 │  │
+                 │  │10kΩ│  │ │1nF │ │ │15V │  │
+                 │  └──┬─┘  │ └──┬─┘ │ │ 1W │  │
+                 │     │    │    │   │ └──┬─┘  │
+                 │  ┌──┴──┐ │   GND  │    │    │
+                 │  │ VR1 │ │        │   GND   │
+                 │  │ 1kΩ │ │        │         │
+                 │  │trim │ │   ┌────┼────┐    │
+                 │  └──┬──┘ │   │ C1 │ C4 │    │
+                 │     │    │   │1µF │100nF│    │
+                 │    GND   │   │25V │25V  │    │
+                 │          │   └─┬──┘└─┬──┘    │
+                 │          │     │     │       │
+                 │          │    GND   GND      │
+                 │          │                   │
+                 │     ┌────┴──────────────┐    │
+                 │     │      TL431 (U1)   │    │
+                 │     │                   │    │
+                 │     │  REF ←── ref_node │    │
+                 │     │                   │    │
+                 │     │  CATHODE ─────────┼──── ←── R5 (1kΩ) ── V_local
+                 │     │                   │
+                 │     │  ANODE ── GND     │
+                 │     └───────┬───────────┘
+                 │             │
+                 │        TL431 CATHODE
+                 │             │
+                 │        ┌────┴────┐
+                 │        │  R6     │
+                 │        │  1kΩ    │
+                 │        └────┬────┘
+                 │             │
+                 │        Q1 BASE (PNP)
+                 │             │
+                 │     ┌───────┼───────────────┐
+                 │     │       │               │
+                 │  ┌──┴──┐   │          ┌─────┴─────┐
+                 │  │ ZD2 │   │          │ Q1 (PNP)  │
+                 │  │5.1V │   │          │ 2N2905A   │
+                 │  │     │   │          │           │
+                 │  └──┬──┘   │          │ E ── V_local
+                 │     │      │          │ B ── q1_base
+                 │  V_local   │          │ C ── q1_collector
+                 │  (clamp)   │          └─────┬─────┘
+                 │            │                │
+                 │            │           ┌────┴────┐
+                 │            │           │   R7    │
+                 │            │           │  47Ω    │
+                 │            │           │  ½W     │
+                 │            │           └────┬────┘
+                 │            │                │
+                 │            │           SCR GATE
+                 │            │           ─────┼─────
+                 │            │           ┌────┼────┐
+                 │            │        ┌──┴─┐     ┌──┴─┐
+                 │            │        │ R8 │     │ZD3 │
+                 │            │        │100Ω│     │15V │
+                 │            │        │    │     │ 1W │
+                 │            │        └──┬─┘     └──┬─┘
+                 │            │           │          │
+                 │            │          GND        GND
+                 │            │
+                 │            │
+            ┌────┴────────────┴────┐
+            │     SCR1 (250A)      │
+            │                      │
+            │  ANODE ── HV BUS     │
+            │  GATE  ── scr_gate   │
+            │  CATHODE ── GND      │
+            │                      │
+            │  ≥800V VDRM          │
+            │  250A  IT(AV)        │
+            │  >5kA  ITSM          │
+            └──────────┬───────────┘
+                       │
+                      GND ──────────────────────────────────── LOAD (-)
+
+
+===============================================================================
+  SIGNAL FLOW SUMMARY
+===============================================================================
+
+  1. HV Bus → R1a → R1b → R2+VR1 → GND          (Voltage sensing divider)
+  2. Divider midpoint → TL431 REF pin              (Threshold comparison)
+  3. V_local → R5 → TL431 Cathode → TL431 Anode   (TL431 bias / switching)
+  4. TL431 Cathode → R6 → Q1 Base                  (Drive signal)
+  5. Q1 Collector → R7 → SCR Gate                   (Gate current delivery)
+  6. SCR fires → shorts HV Bus → Fuse F1 blows     (Protection action)
+
+===============================================================================
+  SAFETY FEATURES KEY
+===============================================================================
+
+  [F1]   Fuse — disconnects supply after crowbar fires
+  [MOV1] MOV — absorbs fast transients before SCR can respond
+  [R9+C2] Snubber — dv/dt protection for SCR
+  [R8]   Gate shunt — noise immunity
+  [ZD3]  Gate zener — overvoltage protection
+  [ZD2]  V_EB clamp — protects PNP driver
+  [C3]   Noise filter — prevents false TL431 triggering
+  [R1a+R1b, R3+R4] Split resistors — voltage derating
+  [C1+C4] Supply decoupling — clean gate trigger pulse
+  [VR1]  Trimmer — precise threshold calibration
+
+===============================================================================
