@@ -69,8 +69,8 @@ The circuit is simulated using **ngspice** with behavioral models for the TL431,
 ### Prerequisites
 
 ```bash
-sudo apt-get install ngspice
-pip install matplotlib numpy
+sudo apt-get install ngspice gnuplot
+pip install schemdraw matplotlib      # for schematic generation
 ```
 
 ### Run Simulation
@@ -84,7 +84,13 @@ Or individually:
 ```bash
 cd simulation
 ngspice -b crowbar_circuit.cir       # Transient analysis → crowbar_results.txt
-python3 plot_results.py              # Parse results → PNG plots
+gnuplot plot_results.gnuplot         # Waveform plots → PNG/SVG
+```
+
+### Regenerate Schematics
+
+```bash
+python3 schematic/generate_schematics.py   # → SVG + PNG schematics
 ```
 
 ### Simulation Results
@@ -129,27 +135,39 @@ See [docs/bom.md](docs/bom.md) for the full BOM with part numbers and sourcing n
 
 ---
 
+## Toolchain
+
+| Tool | Purpose |
+|------|---------|
+| **ngspice** | SPICE circuit simulation (transient analysis) |
+| **gnuplot** | Waveform plotting (reads ngspice data directly) |
+| **schemdraw** | Circuit schematic generation (proper IEC/IEEE symbols) |
+
+No hand-rolled SVG or custom parsers — each tool does what it was built for.
+
 ## File Structure
 
 ```
 ├── README.md                          This file
 ├── AGENTS.md                          Development environment notes
+├── .gitignore
 ├── docs/
 │   ├── design_calculations.md         Full design math
 │   ├── safety_considerations.md       Safety analysis & failure modes
 │   └── bom.md                         Bill of materials
 ├── schematic/
-│   ├── crowbar_schematic.svg          Detailed circuit schematic (SVG)
-│   ├── block_diagram.svg             Block diagram (SVG)
-│   ├── crowbar_schematic.txt          ASCII-art schematic
-│   └── generate_schematics.py        SVG generator script
+│   ├── crowbar_schematic.svg          Detailed circuit schematic (schemdraw)
+│   ├── crowbar_schematic.png          Detailed circuit schematic (PNG)
+│   ├── block_diagram.svg              Block diagram (schemdraw)
+│   ├── block_diagram.png              Block diagram (PNG)
+│   ├── crowbar_schematic.txt          ASCII-art schematic (reference)
+│   └── generate_schematics.py         schemdraw generator script
 └── simulation/
     ├── crowbar_circuit.cir            ngspice netlist
-    ├── plot_results.py                Plotting script
+    ├── plot_results.gnuplot           gnuplot waveform script
     ├── run_simulation.sh              Run simulation + plots
-    ├── crowbar_results.txt            Raw simulation data
-    ├── crowbar_simulation_results.png Full waveform plot
-    └── crowbar_trigger_zoomed.png     Zoomed trigger event plot
+    ├── crowbar_simulation_results.png Full waveform plot (gnuplot)
+    └── crowbar_trigger_zoomed.png     Zoomed trigger event (gnuplot)
 ```
 
 ---
