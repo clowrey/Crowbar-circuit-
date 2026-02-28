@@ -4,26 +4,13 @@
 
 A crowbar overvoltage protection circuit designed to protect high-voltage DC loads from supply overvoltage events. When the bus voltage exceeds 450V, the TL431 precision voltage reference detects the overvoltage and fires a 250A SCR, which shorts the bus and blows the protective fuse, disconnecting the load.
 
-## Circuit Overview
+---
 
-```
-  HV Source ──[FUSE 300A]──┬────────────────────── Load+
-                            │
-                       HV Bus Node
-                            │
-          ┌─────────────────┼─────────────────────┐
-          │                 │                      │
-       [MOV]          [Sensing]              [SCR 250A]
-       480V           Network                  Anode
-          │                │                      │
-         GND          [TL431]──[PNP]──[Gate]  [Snubber]
-                            │                      │
-                           GND               SCR Cathode
-                                                   │
-                                            GND ── Load-
-```
+## Block Diagram
 
-### How It Works
+![Block Diagram](schematic/block_diagram.svg)
+
+## How It Works
 
 1. **Normal operation (V < 450V):** The resistor divider scales the bus voltage below the TL431's 2.495V reference. The TL431 remains off, the PNP driver is off, and the SCR gate is held low by the gate-cathode shunt resistor.
 
@@ -31,49 +18,17 @@ A crowbar overvoltage protection circuit designed to protect high-voltage DC loa
 
 3. **Crowbar activation:** The SCR fires and latches on, creating a near-short across the bus. The massive fault current blows the fuse, permanently disconnecting the supply from the load.
 
+---
+
 ## Detailed Schematic
 
-See [schematic/crowbar_schematic.txt](schematic/crowbar_schematic.txt) for the full annotated circuit diagram.
+![Detailed Schematic](schematic/crowbar_schematic.svg)
 
-```
-  HV Bus (+)
-    │
-    ├──[F1: 300A Fuse]──────────────────────────────── Load (+)
-    │
-    ├──[MOV1: 480V]──── GND
-    │
-    ├──[R1a: 910kΩ]──[R1b: 910kΩ]──┬──[R2: 10kΩ + VR1: 1kΩ trim]── GND
-    │                                │
-    │                           TL431 REF pin
-    │
-    ├──[R3: 47kΩ]──[R4: 47kΩ]──┬──[ZD1: 15V Zener]── GND
-    │                            │
-    │                       V_local (15V)
-    │                            │
-    │                       [C1: 1µF 25V]── GND
-    │                       [C4: 100nF 25V]── GND
-    │                            │
-    │                       [R5: 1kΩ]── TL431 Cathode
-    │                                         │
-    │                                    TL431 Anode ── GND
-    │                                         │
-    │                                    [R6: 1kΩ]
-    │                                         │
-    │                  ┌──[ZD2: 5.1V]── Q1(PNP) Emitter ── V_local
-    │                  │
-    │             Q1 Base
-    │                  │
-    │             Q1 Collector ──[R7: 47Ω]── SCR Gate
-    │                                              │
-    │                                         [R8: 100Ω]── GND
-    │                                         [ZD3: 15V]── GND
-    │
-    ├──[R9: 47Ω]──[C2: 0.47µF 630V]── GND    (Snubber)
-    │
-    SCR Anode (250A, ≥800V)
-    │
-    SCR Cathode ── GND ──────────────────────────────── Load (-)
-```
+> The numbered red badges (①–⑩) correspond to the 10 safety features listed below.
+
+See also: [schematic/crowbar_schematic.txt](schematic/crowbar_schematic.txt) for the ASCII-art version.
+
+---
 
 ## Safety Features
 
@@ -90,7 +45,9 @@ See [schematic/crowbar_schematic.txt](schematic/crowbar_schematic.txt) for the f
 | 9 | **Local Supply** | ZD1 + C1 + C4 | Clean, decoupled gate driver supply |
 | 10 | **Trimmer** | VR1 (1kΩ) | Precise threshold adjustment (415–457V) |
 
-See [docs/safety_considerations.md](docs/safety_considerations.md) for detailed safety analysis.
+See [docs/safety_considerations.md](docs/safety_considerations.md) for detailed safety analysis and failure mode table.
+
+---
 
 ## Design Calculations
 
@@ -102,6 +59,8 @@ Full calculations available in [docs/design_calculations.md](docs/design_calcula
 - SCR gate current: ~100mA (from PNP driver via 15V local supply)
 - Sensing current: 0.25mA (low power dissipation)
 - Response time: <100µs (TL431 + PNP + SCR gate delay)
+
+---
 
 ## Simulation
 
@@ -117,9 +76,15 @@ pip install matplotlib numpy
 ### Run Simulation
 
 ```bash
+bash simulation/run_simulation.sh
+```
+
+Or individually:
+
+```bash
 cd simulation
-ngspice -b crowbar_circuit.cir
-python3 plot_results.py
+ngspice -b crowbar_circuit.cir       # Transient analysis → crowbar_results.txt
+python3 plot_results.py              # Parse results → PNG plots
 ```
 
 ### Simulation Results
@@ -132,6 +97,20 @@ The simulation demonstrates the full crowbar activation sequence:
 4. **608ms:** Bus reaches ~450V — **TL431 triggers → PNP drives → SCR fires**
 5. **608ms+:** Bus voltage collapses as SCR shorts the rail; peak surge current ~4,725A would blow the fuse within milliseconds
 
+#### Full Simulation Waveforms
+
+![Simulation Results](simulation/crowbar_simulation_results.png)
+
+*Five-panel view: (1) HV bus voltage showing crowbar activation at 449.7V, (2) local 15V supply and TL431 cathode, (3) sensing divider output crossing the 2.495V reference, (4) SCR gate voltage and latch state, (5) supply current surge through fuse.*
+
+#### Trigger Event — Zoomed
+
+![Trigger Zoomed](simulation/crowbar_trigger_zoomed.png)
+
+*Zoomed view of the crowbar trigger event showing bus voltage collapse, SCR gate pulse, and surge current within a 60ms window around the trigger point.*
+
+#### Results Summary
+
 | Parameter | Value |
 |-----------|-------|
 | Trigger voltage | 449.7V |
@@ -140,36 +119,50 @@ The simulation demonstrates the full crowbar activation sequence:
 | Peak surge current | 4,725A |
 | Post-crowbar bus voltage | ~1.5V (SCR forward drop) |
 
+---
+
 ## Bill of Materials
 
-See [docs/bom.md](docs/bom.md) for the full BOM with part numbers and sourcing.
+See [docs/bom.md](docs/bom.md) for the full BOM with part numbers and sourcing notes.
+
+**Component count:** 21 total (9 resistors + 1 trimmer, 4 capacitors, 3 zeners, 1 PNP transistor, 1 TL431, 1 SCR, 1 fuse, 1 MOV)
+
+---
 
 ## File Structure
 
 ```
-├── README.md                     This file
-├── AGENTS.md                     Development environment notes
+├── README.md                          This file
+├── AGENTS.md                          Development environment notes
 ├── docs/
-│   ├── design_calculations.md    Detailed calculations
-│   ├── safety_considerations.md  Safety analysis
-│   └── bom.md                    Bill of materials
+│   ├── design_calculations.md         Full design math
+│   ├── safety_considerations.md       Safety analysis & failure modes
+│   └── bom.md                         Bill of materials
 ├── schematic/
-│   └── crowbar_schematic.txt     Full annotated schematic
+│   ├── crowbar_schematic.svg          Detailed circuit schematic (SVG)
+│   ├── block_diagram.svg             Block diagram (SVG)
+│   ├── crowbar_schematic.txt          ASCII-art schematic
+│   └── generate_schematics.py        SVG generator script
 └── simulation/
-    ├── crowbar_circuit.cir       ngspice netlist
-    ├── plot_results.py           Plotting script
-    ├── crowbar_results.txt       Raw simulation data
-    ├── crowbar_simulation_results.png
-    └── crowbar_trigger_zoomed.png
+    ├── crowbar_circuit.cir            ngspice netlist
+    ├── plot_results.py                Plotting script
+    ├── run_simulation.sh              Run simulation + plots
+    ├── crowbar_results.txt            Raw simulation data
+    ├── crowbar_simulation_results.png Full waveform plot
+    └── crowbar_trigger_zoomed.png     Zoomed trigger event plot
 ```
+
+---
 
 ## Warnings
 
-> **HIGH VOLTAGE CIRCUIT** — This circuit operates at 450V+ DC. Voltages above 50V DC are considered lethal. This design is for **reference only**. Any physical implementation must be designed, reviewed, and tested by qualified electrical engineers. Follow all applicable safety standards (IEC 61010, UL 508, etc.).
+> ⚡ **HIGH VOLTAGE CIRCUIT** — This circuit operates at 450V+ DC. Voltages above 50V DC are considered lethal. This design is for **reference only**. Any physical implementation must be designed, reviewed, and tested by qualified electrical engineers. Follow all applicable safety standards (IEC 61010, UL 508, etc.).
 
-> **SCR SURGE RATING** — When the crowbar fires, peak currents exceeding 4,000A flow through the SCR. Ensure the selected SCR's I²t surge rating exceeds the fuse's I²t clearing rating. The SCR must survive until the fuse opens.
+> 🔥 **SCR SURGE RATING** — When the crowbar fires, peak currents exceeding 4,000A flow through the SCR. Ensure the selected SCR's I²t surge rating exceeds the fuse's I²t clearing rating. The SCR must survive until the fuse opens.
 
-> **FUSE COORDINATION** — The fuse must be rated for the full bus voltage (DC) and must clear before the SCR's thermal limits are exceeded. Use semiconductor-grade fuses (e.g., Bussmann FWH series) for proper coordination.
+> ⚠️ **FUSE COORDINATION** — The fuse must be rated for the full bus voltage (DC) and must clear before the SCR's thermal limits are exceeded. Use semiconductor-grade fuses (e.g., Bussmann FWH series) for proper coordination.
+
+---
 
 ## License
 
